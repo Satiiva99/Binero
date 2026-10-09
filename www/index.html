@@ -90,6 +90,8 @@
     <option value="3" selected>Niv. 3</option>
     <option value="4">Niv. 4</option>
     <option value="5">Niv. 5</option>
+    <option value="6">Niv. 6</option>
+    <option value="7">Niv. 7</option>
   </select>
   <button class="primary" id="new-btn">Nouvelle</button>
 </div>
@@ -215,9 +217,9 @@
   // Level controls how few givens remain — fewer givens means longer
   // deduction chains are needed, which is how the difficulty rises
   // without the grid changing size.
-  const LEVEL_KEEP_FRACTION = {1:0.58, 2:0.50, 3:0.42, 4:0.34, 5:0.27};
+  const LEVEL_KEEP_FRACTION = {1:0.58, 2:0.50, 3:0.42, 4:0.34, 5:0.27, 6:0.22, 7:0.18};
 
-  function makePuzzle(sol, n, level){
+  function reducePuzzle(sol, n, level){
     let g = sol.map(row=>row.slice());
     let cells = [];
     for(let r=0;r<n;r++) for(let c=0;c<n;c++) cells.push([r,c]);
@@ -240,7 +242,18 @@
         filled--;
       }
     }
-    return g;
+    return {g, filled};
+  }
+
+  // High levels: try several random removal orders and keep the sparsest grid.
+  function makePuzzle(sol, n, level){
+    const attempts = (level>=6 && n<=10) ? 3 : 1;
+    let best = null, bestFilled = Infinity;
+    for(let a=0;a<attempts;a++){
+      const res = reducePuzzle(sol, n, level);
+      if(res.filled < bestFilled){ best = res.g; bestFilled = res.filled; }
+    }
+    return best;
   }
 
   function newGame(){
