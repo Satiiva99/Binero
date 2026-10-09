@@ -1,0 +1,372 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Binéro</title>
+<style>
+  :root{
+    --bg:#f3efe6; --ink:#1c2b2f; --grid:#1c2b2f;
+    --zero:#2f6f6b; --one:#b5482f; --fixed:#1c2b2f;
+    --cell:#ffffff; --cell-border:#d8d0bd; --accent:#2f6f6b;
+    padding-top:env(safe-area-inset-top,0px);
+    padding-bottom:env(safe-area-inset-bottom,0px);
+    box-sizing:border-box;
+  }
+  @media (prefers-color-scheme: dark){
+    :root:not([data-theme="light"]){
+      --bg:#14201f; --ink:#e9e3d3; --grid:#e9e3d3;
+      --zero:#7fd1c7; --one:#e08a63; --fixed:#e9e3d3;
+      --cell:#1c2b2a; --cell-border:#33433f; --accent:#7fd1c7;
+    }
+  }
+  :root[data-theme="dark"]{
+    --bg:#14201f; --ink:#e9e3d3; --grid:#e9e3d3;
+    --zero:#7fd1c7; --one:#e08a63; --fixed:#e9e3d3;
+    --cell:#1c2b2a; --cell-border:#33433f; --accent:#7fd1c7;
+  }
+  html,body{height:100%;}
+  body{
+    margin:0; background:var(--bg); color:var(--ink);
+    font-family: 'Courier New', ui-monospace, monospace;
+    display:flex; flex-direction:column; align-items:center;
+    min-height:100%;
+  }
+  header{
+    width:100%; max-width:520px; padding:18px 20px 6px;
+    box-sizing:border-box;
+  }
+  h1{
+    font-size:1.5rem; margin:0 0 2px; letter-spacing:0.02em;
+    font-weight:700;
+  }
+  .sub{ font-size:0.85rem; opacity:0.65; margin:0; }
+  .controls{
+    width:100%; max-width:520px; padding:12px 20px; box-sizing:border-box;
+    display:flex; gap:8px; flex-wrap:wrap; align-items:center;
+  }
+  select, button{
+    font-family:inherit; font-size:0.9rem; border-radius:3px;
+    border:1px solid var(--cell-border); background:var(--cell);
+    color:var(--ink); padding:8px 12px; cursor:pointer;
+  }
+  button.primary{ background:var(--accent); color:var(--bg); border-color:var(--accent); font-weight:700;}
+  #board-wrap{
+    width:100%; max-width:520px; padding:8px 20px 4px; box-sizing:border-box;
+    overflow-x:auto;
+  }
+  #board{
+    display:grid; gap:3px; background:var(--grid);
+    border:3px solid var(--grid); margin:0 auto; width:min(92vw,460px);
+    aspect-ratio:1/1;
+  }
+  .cell{
+    background:var(--cell); display:flex; align-items:center; justify-content:center;
+    font-size:1.1rem; font-weight:700; user-select:none; cursor:pointer;
+    aspect-ratio:1/1;
+  }
+  .cell.fixed{ color:var(--fixed); cursor:default; opacity:0.55; }
+  .cell.zero{ color:var(--zero); }
+  .cell.one{ color:var(--one); }
+  .cell.bad{ outline:2px solid #c0392b; outline-offset:-2px; }
+  .cell.hyp{ opacity:0.5; font-style:italic; outline:2px dashed var(--accent); outline-offset:-4px; }
+  button.active{ background:var(--accent); color:var(--bg); border-color:var(--accent); font-weight:700; }
+  .controls.second{ padding-top:0; }
+  #msg{
+    min-height:1.4em; font-size:0.9rem; padding:10px 20px 0; text-align:center;
+    max-width:520px; box-sizing:border-box;
+  }
+  #msg.ok{ color:var(--zero); font-weight:700; }
+  #msg.err{ color:var(--one); }
+  footer{
+    padding:14px 20px 30px; font-size:0.78rem; opacity:0.55; text-align:center;
+    max-width:520px;
+  }
+</style>
+</head>
+<body>
+<header>
+  <h1>Binéro</h1>
+  <p class="sub">Remplis la grille de 0 et de 1 — jamais trois identiques d'affilée, autant de 0 que de 1 par ligne et par colonne, aucune ligne ni colonne en double.</p>
+</header>
+
+<div class="controls">
+  <select id="size">
+    <option value="6">6 × 6</option>
+    <option value="8" selected>8 × 8</option>
+    <option value="10">10 × 10</option>
+    <option value="12">12 × 12</option>
+  </select>
+  <select id="level">
+    <option value="1">Niveau 1</option>
+    <option value="2">Niveau 2</option>
+    <option value="3" selected>Niveau 3</option>
+    <option value="4">Niveau 4</option>
+    <option value="5">Niveau 5</option>
+  </select>
+  <button class="primary" id="new-btn">Nouvelle grille</button>
+  <button id="check-btn">Vérifier</button>
+  <button id="solve-btn">Solution</button>
+</div>
+
+<div class="controls second">
+  <button id="hyp-btn">✏️ Mode hypothèse : non</button>
+  <button id="validate-btn">Valider les hypothèses</button>
+  <button id="clear-hyp-btn">Effacer les hypothèses</button>
+</div>
+
+<div id="board-wrap"><div id="board"></div></div>
+<div id="msg"></div>
+<footer>Touche une case pour faire défiler vide → 0 → 1 → vide.</footer>
+
+<script>
+(function(){
+  let N = 8;
+  let solution = [];
+  let puzzle = [];   // -1 empty, 0/1 fixed given
+  let player = [];   // current entries, -1 empty
+  let fixedMask = [];
+  let hyp = [];          // tentative entries, -1 none, 0/1 guess
+  let hypMode = false;
+
+  function emptyGrid(n){ return Array.from({length:n},()=>Array(n).fill(-1)); }
+
+  function validPlacement(g, r, c, v, n){
+    g[r][c] = v;
+    // no 3 in a row horizontally
+    let row = g[r];
+    for(let i=0;i<=n-3;i++){
+      if(row[i]!==-1 && row[i]===row[i+1] && row[i+1]===row[i+2]){ g[r][c]=-1; return false; }
+    }
+    let col = g.map(x=>x[c]);
+    for(let i=0;i<=n-3;i++){
+      if(col[i]!==-1 && col[i]===col[i+1] && col[i+1]===col[i+2]){ g[r][c]=-1; return false; }
+    }
+    // row/col count balance
+    let rowCount = row.filter(x=>x===v).length;
+    let colCount = col.filter(x=>x===v).length;
+    if(rowCount > n/2 || colCount > n/2){ g[r][c]=-1; return false; }
+    g[r][c] = -1;
+    return true;
+  }
+
+  function rowsDistinct(g, r, n){
+    if(g[r].includes(-1)) return true;
+    for(let i=0;i<r;i++){
+      if(!g[i].includes(-1) && g[i].join('')===g[r].join('')) return false;
+    }
+    return true;
+  }
+  function colsDistinct(g, c, n){
+    let col = g.map(x=>x[c]);
+    if(col.includes(-1)) return true;
+    for(let j=0;j<c;j++){
+      let other = g.map(x=>x[j]);
+      if(!other.includes(-1) && other.join('')===col.join('')) return false;
+    }
+    return true;
+  }
+
+  function fillSolution(n){
+    let g = emptyGrid(n);
+    let cells = [];
+    for(let r=0;r<n;r++) for(let c=0;c<n;c++) cells.push([r,c]);
+
+    function backtrack(idx){
+      if(idx===cells.length) return true;
+      let [r,c] = cells[idx];
+      let vals = Math.random()<0.5 ? [0,1] : [1,0];
+      for(const v of vals){
+        if(validPlacement(g,r,c,v,n)){
+          g[r][c]=v;
+          let rowFull = !g[r].includes(-1);
+          let colFull = !g.map(x=>x[c]).includes(-1);
+          if(rowFull && !rowsDistinct(g,r,n)){ g[r][c]=-1; continue; }
+          if(colFull && !colsDistinct(g,c,n)){ g[r][c]=-1; continue; }
+          if(backtrack(idx+1)) return true;
+          g[r][c]=-1;
+        }
+      }
+      return false;
+    }
+    backtrack(0);
+    return g;
+  }
+
+  function countSolutions(g, n, cap){
+    let grid = g.map(row=>row.slice());
+    let cells = [];
+    for(let r=0;r<n;r++) for(let c=0;c<n;c++) if(grid[r][c]===-1) cells.push([r,c]);
+    let count = 0, nodes = 0, aborted = false;
+    function backtrack(idx){
+      nodes++;
+      if(nodes>cap){ aborted = true; return true; }
+      if(idx===cells.length){ count++; return count>=2; }
+      const [r,c] = cells[idx];
+      for(const v of [0,1]){
+        if(validPlacement(grid,r,c,v,n)){
+          grid[r][c]=v;
+          const rowFull = !grid[r].includes(-1);
+          const colFull = !grid.map(x=>x[c]).includes(-1);
+          let ok = true;
+          if(rowFull && !rowsDistinct(grid,r,n)) ok=false;
+          if(ok && colFull && !colsDistinct(grid,c,n)) ok=false;
+          if(ok && backtrack(idx+1)){ grid[r][c]=-1; return true; }
+          grid[r][c]=-1;
+        }
+      }
+      return false;
+    }
+    backtrack(0);
+    return { count, aborted };
+  }
+
+  // Level controls how few givens remain — fewer givens means longer
+  // deduction chains are needed, which is how the difficulty rises
+  // without the grid changing size.
+  const LEVEL_KEEP_FRACTION = {1:0.58, 2:0.50, 3:0.42, 4:0.34, 5:0.27};
+
+  function makePuzzle(sol, n, level){
+    let g = sol.map(row=>row.slice());
+    let cells = [];
+    for(let r=0;r<n;r++) for(let c=0;c<n;c++) cells.push([r,c]);
+    for(let i=cells.length-1;i>0;i--){
+      const j = Math.floor(Math.random()*(i+1));
+      [cells[i],cells[j]]=[cells[j],cells[i]];
+    }
+    const keepFraction = LEVEL_KEEP_FRACTION[level] || 0.42;
+    const targetKeep = Math.max(n, Math.round(n*n*keepFraction));
+    let filled = n*n;
+    const cap = n<=8 ? 120000 : n<=10 ? 60000 : 30000;
+    for(const [r,c] of cells){
+      if(filled<=targetKeep) break;
+      const backup = g[r][c];
+      g[r][c] = -1;
+      const {count, aborted} = countSolutions(g, n, cap);
+      if(aborted || count!==1){
+        g[r][c] = backup; // removing this clue breaks uniqueness — keep it
+      } else {
+        filled--;
+      }
+    }
+    return g;
+  }
+
+  function newGame(){
+    setMsg('Génération de la grille…', '');
+    document.getElementById('new-btn').disabled = true;
+    setTimeout(()=>{
+      N = parseInt(document.getElementById('size').value,10);
+      const level = parseInt(document.getElementById('level').value,10);
+      solution = fillSolution(N);
+      puzzle = makePuzzle(solution, N, level);
+      player = puzzle.map(row=>row.slice());
+      fixedMask = puzzle.map(row=>row.map(v=>v!==-1));
+      hyp = emptyGrid(N);
+      setMsg('', '');
+      document.getElementById('new-btn').disabled = false;
+      render();
+    }, 20);
+  }
+
+  function render(){
+    const board = document.getElementById('board');
+    board.style.gridTemplateColumns = `repeat(${N}, 1fr)`;
+    board.innerHTML = '';
+    for(let r=0;r<N;r++){
+      for(let c=0;c<N;c++){
+        const div = document.createElement('div');
+        const v = player[r][c];
+        const h = hyp[r][c];
+        const showHyp = (v===-1 && h!==-1);
+        const shown = showHyp ? h : v;
+        div.className = 'cell' + (fixedMask[r][c] ? ' fixed' : '')
+          + (shown===0?' zero':shown===1?' one':'') + (showHyp?' hyp':'');
+        div.textContent = shown===-1 ? '' : shown;
+        div.dataset.r = r; div.dataset.c = c;
+        if(!fixedMask[r][c]){
+          div.addEventListener('click', onCellClick);
+        }
+        board.appendChild(div);
+      }
+    }
+  }
+
+  function onCellClick(e){
+    const r = +e.currentTarget.dataset.r, c = +e.currentTarget.dataset.c;
+    if(hypMode){
+      if(player[r][c]!==-1) return; // can't guess over a real entry
+      hyp[r][c] = hyp[r][c]===-1 ? 0 : hyp[r][c]===0 ? 1 : -1;
+    } else {
+      hyp[r][c] = -1;
+      player[r][c] = player[r][c]===-1 ? 0 : player[r][c]===0 ? 1 : -1;
+    }
+    setMsg('', '');
+    render();
+  }
+
+  function toggleHypMode(){
+    hypMode = !hypMode;
+    const b = document.getElementById('hyp-btn');
+    b.textContent = '✏️ Mode hypothèse : ' + (hypMode ? 'oui' : 'non');
+    b.classList.toggle('active', hypMode);
+  }
+
+  function validateHyps(){
+    for(let r=0;r<N;r++) for(let c=0;c<N;c++){
+      if(player[r][c]===-1 && hyp[r][c]!==-1) player[r][c] = hyp[r][c];
+      hyp[r][c] = -1;
+    }
+    setMsg('Hypothèses validées.', '');
+    render();
+  }
+
+  function clearHyps(){
+    hyp = emptyGrid(N);
+    setMsg('Hypothèses effacées.', '');
+    render();
+  }
+
+  function setMsg(text, cls){
+    const el = document.getElementById('msg');
+    el.textContent = text;
+    el.className = cls || '';
+  }
+
+  function checkSolution(){
+    let complete = true;
+    let correct = true;
+    for(let r=0;r<N;r++) for(let c=0;c<N;c++){
+      if(player[r][c]===-1) complete = false;
+      else if(player[r][c] !== solution[r][c]) correct = false;
+    }
+    if(!complete){
+      setMsg('Grille incomplète.', 'err');
+    } else if(correct){
+      setMsg('Bravo, grille correcte \u2713', 'ok');
+    } else {
+      setMsg('Il y a au moins une erreur.', 'err');
+    }
+  }
+
+  function showSolution(){
+    player = solution.map(row=>row.slice());
+    hyp = emptyGrid(N);
+    setMsg('Solution affichée.', '');
+    render();
+  }
+
+  document.getElementById('hyp-btn').addEventListener('click', toggleHypMode);
+  document.getElementById('validate-btn').addEventListener('click', validateHyps);
+  document.getElementById('clear-hyp-btn').addEventListener('click', clearHyps);
+  document.getElementById('new-btn').addEventListener('click', newGame);
+  document.getElementById('check-btn').addEventListener('click', checkSolution);
+  document.getElementById('solve-btn').addEventListener('click', showSolution);
+  document.getElementById('size').addEventListener('change', newGame);
+  document.getElementById('level').addEventListener('change', newGame);
+
+  newGame();
+})();
+</script>
+</body>
+</html>
