@@ -274,6 +274,35 @@
     }, 20);
   }
 
+  const SAVE_KEY = 'binero-save-v1';
+
+  function saveGame(){
+    try{
+      localStorage.setItem(SAVE_KEY, JSON.stringify({
+        N, level: document.getElementById('level').value,
+        solution, player, fixedMask, hyp
+      }));
+    }catch(e){}
+  }
+
+  function loadGame(){
+    try{
+      const raw = localStorage.getItem(SAVE_KEY);
+      if(!raw) return false;
+      const d = JSON.parse(raw);
+      const n = d.N;
+      const ok = g => Array.isArray(g) && g.length===n && g.every(r=>Array.isArray(r) && r.length===n);
+      if(!n || !ok(d.solution) || !ok(d.player) || !ok(d.fixedMask) || !ok(d.hyp)) return false;
+      N = n; solution = d.solution; player = d.player;
+      fixedMask = d.fixedMask; hyp = d.hyp; badCell = null;
+      document.getElementById('size').value = String(n);
+      if(d.level) document.getElementById('level').value = String(d.level);
+      setMsg('Partie reprise.', '');
+      render();
+      return true;
+    }catch(e){ return false; }
+  }
+
   function render(){
     const board = document.getElementById('board');
     board.style.gridTemplateColumns = `repeat(${N}, 1fr)`;
@@ -296,6 +325,7 @@
         board.appendChild(div);
       }
     }
+    saveGame();
   }
 
   function onCellClick(e){
@@ -376,7 +406,7 @@
   document.getElementById('size').addEventListener('change', newGame);
   document.getElementById('level').addEventListener('change', newGame);
 
-  newGame();
+  if(!loadGame()) newGame();
 })();
 </script>
 </body>
